@@ -5,8 +5,21 @@
 #include <tchar.h>
 #include <string>
 
-void ErrorAndExit(std::string pErrorString)
+namespace
 {
+  HANDLE s_changeHandle = NULL;
+}
+
+void CloseChangeHandle()
+{
+  if (s_changeHandle != NULL && s_changeHandle != INVALID_HANDLE_VALUE)
+    FindCloseChangeNotification(s_changeHandle);
+}
+
+[[noreturn]] void ErrorAndExit(std::string pErrorString)
+{
+  CloseChangeHandle();
+
   DWORD errorCode = GetLastError();
   std::cerr << "Error: " << pErrorString << std::endl;
   ExitProcess(errorCode);
@@ -20,21 +33,21 @@ void WatchDirectory(LPCTSTR pDir)
 
   _tsplitpath_s(pDir, drive, 4, NULL, 0, file, _MAX_FNAME, extension, _MAX_EXT);
 
-  HANDLE changeHandle = FindFirstChangeNotification(pDir, FALSE, FILE_NOTIFY_CHANGE_FILE_NAME);
+  s_changeHandle = FindFirstChangeNotification(pDir, FALSE, FILE_NOTIFY_CHANGE_FILE_NAME);
  
-  if (changeHandle == NULL || changeHandle == INVALID_HANDLE_VALUE)
+  if (s_changeHandle == NULL || s_changeHandle == INVALID_HANDLE_VALUE)
     ErrorAndExit("FindFirstChangeNotification function failed.");
 
   while (TRUE)
   {
-    DWORD waitStatus = WaitForSingleObject(changeHandle, INFINITE);
+    DWORD waitStatus = WaitForSingleObject(s_changeHandle, INFINITE);
 
     switch (waitStatus)
     { 
       case WAIT_OBJECT_0:
         _tprintf(L"Directory %s changed.\n", pDir);
 
-        if (FindNextChangeNotification(changeHandle) == FALSE)
+        if (FindNextChangeNotification(s_changeHandle) == FALSE)
           ErrorAndExit("FindNextChangeNotification function failed.");
         break;
 
@@ -46,6 +59,8 @@ void WatchDirectory(LPCTSTR pDir)
         ErrorAndExit("unhandled dwWaitStatus.");
     }
   }
+
+  CloseChangeHandle();
 }
 
 int main(int argc, TCHAR* argv[])
