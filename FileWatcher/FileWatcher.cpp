@@ -33,7 +33,7 @@ void WatchDirectory(LPCTSTR pDir)
 
   _tsplitpath_s(pDir, drive, 4, NULL, 0, file, _MAX_FNAME, extension, _MAX_EXT);
 
-  s_changeHandle = FindFirstChangeNotification(pDir, FALSE, FILE_NOTIFY_CHANGE_FILE_NAME);
+  s_changeHandle = FindFirstChangeNotification(pDir, FALSE, FILE_NOTIFY_CHANGE_LAST_WRITE);
  
   if (s_changeHandle == NULL || s_changeHandle == INVALID_HANDLE_VALUE)
     ErrorAndExit("FindFirstChangeNotification function failed.");
