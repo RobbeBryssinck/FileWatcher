@@ -20,51 +20,29 @@ void WatchDirectory(LPCTSTR pDir)
 
   _tsplitpath_s(pDir, drive, 4, NULL, 0, file, _MAX_FNAME, extension, _MAX_EXT);
 
-  drive[2] = static_cast<TCHAR>('\\');
-  drive[3] = static_cast<TCHAR>('\0');
-
-  HANDLE changeHandles[2]{};
+  HANDLE changeHandle = FindFirstChangeNotification(pDir, FALSE, FILE_NOTIFY_CHANGE_FILE_NAME);
  
-  changeHandles[0] = FindFirstChangeNotification(pDir, FALSE, FILE_NOTIFY_CHANGE_FILE_NAME);
- 
-  if (changeHandles[0] == INVALID_HANDLE_VALUE) 
+  if (changeHandle == NULL || changeHandle == INVALID_HANDLE_VALUE)
     ErrorAndExit("FindFirstChangeNotification function failed.");
 
-  changeHandles[1] = FindFirstChangeNotification(drive, TRUE, FILE_NOTIFY_CHANGE_DIR_NAME);
- 
-  if (changeHandles[1] == INVALID_HANDLE_VALUE) 
-    ErrorAndExit("FindFirstChangeNotification function failed.");
-
-  if ((changeHandles[0] == NULL) || (changeHandles[1] == NULL))
-    ErrorAndExit("unexpected NULL from FindFirstChangeNotification.");
-
-  while (TRUE) 
+  while (TRUE)
   {
-    std::cout << "Waiting for notification..." << std::endl;
+    DWORD waitStatus = WaitForSingleObject(changeHandle, INFINITE);
 
-    DWORD dwWaitStatus = WaitForMultipleObjects(2, changeHandles, FALSE, INFINITE); 
-
-    switch (dwWaitStatus) 
+    switch (waitStatus)
     { 
-      case WAIT_OBJECT_0: 
+      case WAIT_OBJECT_0:
         _tprintf(L"Directory %s changed.\n", pDir);
 
-        if (FindNextChangeNotification(changeHandles[0]) == FALSE)
+        if (FindNextChangeNotification(changeHandle) == FALSE)
           ErrorAndExit("FindNextChangeNotification function failed.");
-        break; 
-
-      case WAIT_OBJECT_0 + 1: 
-        _tprintf(L"Directory tree %s changed.\n", drive);
-
-        if (FindNextChangeNotification(changeHandles[1]) == FALSE)
-          ErrorAndExit("FindNextChangeNotification function failed.");
-        break; 
+        break;
 
       case WAIT_TIMEOUT:
         std::cout << "No changes in the timeout period." << std::endl;
         break;
 
-      default: 
+      default:
         ErrorAndExit("unhandled dwWaitStatus.");
     }
   }
