@@ -4,76 +4,161 @@
 #include <stdio.h>
 #include <tchar.h>
 #include <string>
+#include <vector>
 
-namespace
+class Watcher
 {
-  HANDLE s_changeHandle = NULL;
-}
-
-void CloseChangeHandle()
-{
-  if (s_changeHandle != NULL && s_changeHandle != INVALID_HANDLE_VALUE)
-    FindCloseChangeNotification(s_changeHandle);
-}
-
-[[noreturn]] void ErrorAndExit(std::string pErrorString)
-{
-  CloseChangeHandle();
-
-  DWORD errorCode = GetLastError();
-  std::cerr << "Error: " << pErrorString << std::endl;
-  ExitProcess(errorCode);
-}
-
-void WatchDirectory(LPCTSTR pDir)
-{
-  TCHAR drive[4]{};
-  TCHAR file[_MAX_FNAME]{};
-  TCHAR extension[_MAX_EXT]{};
-
-  _tsplitpath_s(pDir, drive, 4, NULL, 0, file, _MAX_FNAME, extension, _MAX_EXT);
-
-  s_changeHandle = FindFirstChangeNotification(pDir, FALSE, FILE_NOTIFY_CHANGE_LAST_WRITE);
- 
-  if (s_changeHandle == NULL || s_changeHandle == INVALID_HANDLE_VALUE)
-    ErrorAndExit("FindFirstChangeNotification function failed.");
-
-  while (TRUE)
+public:
+  enum class InitResult
   {
-    DWORD waitStatus = WaitForSingleObject(s_changeHandle, INFINITE);
+    kSuccess = 0,
+    kCreateFileFailed,
+    kCreateEventFailed,
+    kReadDirectoryChangesFailed,
+  };
 
-    switch (waitStatus)
-    { 
-      case WAIT_OBJECT_0:
-        _tprintf(L"Directory %s changed.\n", pDir);
+  enum class ProcessResult
+  {
+    kSuccess = 0,
+    kUnknown,
+    kTimeOut,
+  };
 
-        if (FindNextChangeNotification(s_changeHandle) == FALSE)
-          ErrorAndExit("FindNextChangeNotification function failed.");
-        break;
+  Watcher() = default;
+  ~Watcher()
+  {
+    if (dirHandle != NULL && dirHandle != INVALID_HANDLE_VALUE)
+      CloseHandle(dirHandle);
 
-      case WAIT_TIMEOUT:
-        std::cout << "No changes in the timeout period." << std::endl;
-        break;
+    if (overlapped.hEvent != NULL && overlapped.hEvent != INVALID_HANDLE_VALUE)
+      CloseHandle(overlapped.hEvent);
+  }
 
-      default:
-        ErrorAndExit("unhandled dwWaitStatus.");
+  [[nodiscard]] InitResult Init(LPCTSTR pDir)
+  {
+    dirHandle = CreateFile(pDir, FILE_LIST_DIRECTORY, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+      NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OVERLAPPED, NULL);
+
+    if (dirHandle == NULL || dirHandle == INVALID_HANDLE_VALUE)
+      return InitResult::kCreateFileFailed;
+
+    overlapped.hEvent = CreateEvent(NULL, FALSE, 0, NULL);
+
+    if (overlapped.hEvent == NULL || overlapped.hEvent == INVALID_HANDLE_VALUE)
+      return InitResult::kCreateEventFailed;
+
+    if (!ReadDirectoryChangesW(dirHandle, events, sizeof(events), TRUE, FILE_NOTIFY_CHANGE_LAST_WRITE, NULL, &overlapped, NULL))
+      return InitResult::kReadDirectoryChangesFailed;
+
+    return InitResult::kSuccess;
+  }
+
+  ProcessResult ProcessUpdates(std::vector<std::wstring>& out)
+  {
+    DWORD result = WaitForSingleObject(overlapped.hEvent, INFINITE);
+    if (result == WAIT_TIMEOUT)
+      return ProcessResult::kTimeOut;
+
+    DWORD bytesTransferred{};
+    if (!GetOverlappedResult(dirHandle, &overlapped, &bytesTransferred, FALSE))
+      return ProcessResult::kUnknown;
+
+    FILE_NOTIFY_INFORMATION* pEvent = nullptr;
+
+    do
+    {
+      if (!pEvent)
+        pEvent = reinterpret_cast<FILE_NOTIFY_INFORMATION*>(events);
+      else
+        pEvent = UpdateCurrentEvent(pEvent);
+
+      out.push_back(std::wstring(pEvent->FileName, pEvent->FileNameLength / 2));
+    } while (pEvent->NextEntryOffset);
+
+    if (!ReadDirectoryChangesW(dirHandle, events, sizeof(events), TRUE, FILE_NOTIFY_CHANGE_LAST_WRITE, NULL, &overlapped, NULL))
+      return ProcessResult::kUnknown;
+
+    return ProcessResult::kSuccess;
+  }
+
+  [[nodiscard]] FILE_NOTIFY_INFORMATION* UpdateCurrentEvent(FILE_NOTIFY_INFORMATION* pCurrentEvent) const
+  {
+    return reinterpret_cast<FILE_NOTIFY_INFORMATION*>(reinterpret_cast<uint8_t*>(pCurrentEvent) + reinterpret_cast<FILE_NOTIFY_INFORMATION*>(pCurrentEvent)->NextEntryOffset);
+  }
+
+private:
+  HANDLE dirHandle{};
+  OVERLAPPED overlapped{};
+  uint8_t events[1024]{};
+  int position{0};
+};
+
+[[noreturn]] DWORD ReportError(std::string pErrorString)
+{
+  DWORD errorCode = GetLastError();
+  std::cerr << "Error: " << pErrorString << "\nError code: " << errorCode << std::endl;
+  return errorCode;
+}
+
+[[nodiscard]] DWORD WatchDirectory(LPCTSTR pDir)
+{
+  Watcher watcher{};
+
+  {
+    using WIR = Watcher::InitResult;
+    switch (watcher.Init(pDir))
+    {
+      case WIR::kCreateFileFailed:
+        return ReportError("CreateFile function failed.");
+      case WIR::kCreateEventFailed:
+        return ReportError("CreateEvent function failed.");
+      case WIR::kReadDirectoryChangesFailed:
+        return ReportError("ReadDirectoryChanges function failed.");
+      case WIR::kSuccess:
+        std::cout << "Watcher created successfully." << std::endl;
     }
   }
 
-  CloseChangeHandle();
+  while (true)
+  {
+    std::vector<std::wstring> files{};
+    Watcher::ProcessResult result = watcher.ProcessUpdates(files);
+
+    switch (result)
+    {
+    case Watcher::ProcessResult::kTimeOut:
+      std::cout << "No changes in the timeout period." << std::endl;
+      break;
+    case Watcher::ProcessResult::kSuccess:
+      break;
+    case Watcher::ProcessResult::kUnknown:
+    default:
+      return ReportError("unhandled waitStatus.");
+    }
+
+    for (const auto& file : files)
+      std::wcout << file << std::endl;
+  }
+
+  return NULL;
 }
 
 int main(int argc, TCHAR* argv[])
 {
+  DWORD errorCode = NULL;
+
   switch (argc)
   {
   case 1:
-    WatchDirectory(L"C:\\dev\\test");
+    errorCode = WatchDirectory(L"C:\\dev\\test");
     break;
   case 2:
-    WatchDirectory(argv[1]);
+    errorCode = WatchDirectory(argv[1]);
     break;
   default:
     std::cerr << "Path to directory required!" << std::endl;
   }
+
+  if (errorCode)
+    ExitProcess(errorCode);
 }
