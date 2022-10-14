@@ -47,13 +47,13 @@ public:
     if (overlapped.hEvent == NULL || overlapped.hEvent == INVALID_HANDLE_VALUE)
       return InitResult::kCreateEventFailed;
 
-    if (!ReadDirectoryChangesW(dirHandle, events, sizeof(events), TRUE, FILE_NOTIFY_CHANGE_LAST_WRITE, NULL, &overlapped, NULL))
+    if (!RegisterChangesSink())
       return InitResult::kReadDirectoryChangesFailed;
 
     return InitResult::kSuccess;
   }
 
-  ProcessResult ProcessUpdates(std::vector<std::wstring>& out)
+  ProcessResult ProcessUpdates(std::vector<std::pair<std::wstring, DWORD>>& out)
   {
     DWORD result = WaitForSingleObject(overlapped.hEvent, INFINITE);
     if (result == WAIT_TIMEOUT)
@@ -72,16 +72,24 @@ public:
       else
         pEvent = UpdateCurrentEvent(pEvent);
 
-      out.push_back(std::wstring(pEvent->FileName, pEvent->FileNameLength / 2));
+      out.push_back({ std::wstring(pEvent->FileName, pEvent->FileNameLength / 2), pEvent->Action });
     } while (pEvent->NextEntryOffset);
 
-    if (!ReadDirectoryChangesW(dirHandle, events, sizeof(events), TRUE, FILE_NOTIFY_CHANGE_LAST_WRITE, NULL, &overlapped, NULL))
+    if (!RegisterChangesSink())
       return ProcessResult::kUnknown;
 
     return ProcessResult::kSuccess;
   }
 
 private:
+  bool RegisterChangesSink()
+  {
+    DWORD filter = FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_DIR_NAME | FILE_NOTIFY_CHANGE_ATTRIBUTES 
+      | FILE_NOTIFY_CHANGE_SIZE | FILE_NOTIFY_CHANGE_LAST_WRITE | FILE_NOTIFY_CHANGE_LAST_ACCESS 
+      | FILE_NOTIFY_CHANGE_CREATION | FILE_NOTIFY_CHANGE_SECURITY;
+    return ReadDirectoryChangesW(dirHandle, events, sizeof(events), TRUE, filter, NULL, &overlapped, NULL);
+  }
+
   [[nodiscard]] FILE_NOTIFY_INFORMATION* UpdateCurrentEvent(FILE_NOTIFY_INFORMATION* pCurrentEvent) const
   {
     return reinterpret_cast<FILE_NOTIFY_INFORMATION*>(reinterpret_cast<uint8_t*>(pCurrentEvent) + reinterpret_cast<FILE_NOTIFY_INFORMATION*>(pCurrentEvent)->NextEntryOffset);
@@ -121,7 +129,7 @@ private:
 
   while (true)
   {
-    std::vector<std::wstring> files{};
+    std::vector<std::pair<std::wstring, DWORD>> files{};
     Watcher::ProcessResult result = watcher.ProcessUpdates(files);
 
     switch (result)
@@ -137,7 +145,7 @@ private:
     }
 
     for (const auto& file : files)
-      std::wcout << file << std::endl;
+      std::wcout << file.first << ": " << file.second << std::endl;
   }
 
   return NULL;
