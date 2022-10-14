@@ -41,7 +41,8 @@
       break;
     case Watcher::ProcessResult::kUnknown:
     default:
-      return Logging::ReportError("unhandled waitStatus.");
+      Logging::ReportError("unhandled waitStatus.");
+      continue;
     }
 
     std::set<std::wstring> processedFiles{};
