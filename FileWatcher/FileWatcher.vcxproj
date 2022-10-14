@@ -129,6 +129,13 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="FileWatcher.cpp" />
+    <ClCompile Include="Mover.cpp" />
+    <ClCompile Include="Watcher.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="Mover.h" />
+    <ClInclude Include="Utils.h" />
+    <ClInclude Include="Watcher.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
