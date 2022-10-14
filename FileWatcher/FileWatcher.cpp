@@ -5,10 +5,20 @@
 #include <tchar.h>
 #include <string>
 #include <vector>
+#include <set>
+#include <filesystem>
+
+#define NOCOPYMOVE(className) \
+    className(className&&) = delete; \
+    className(const className&) = delete; \
+    className& operator=(const className&) = delete; \
+    className& operator=(className&&) = delete;
 
 class Watcher
 {
 public:
+  NOCOPYMOVE(Watcher);
+
   enum class InitResult
   {
     kSuccess = 0,
@@ -101,6 +111,31 @@ private:
   uint8_t events[1024]{};
 };
 
+namespace Mover
+{
+  namespace fs = std::filesystem;
+
+  static fs::path s_watchedPath;
+  static fs::path s_destinationPath;
+
+  void CopyNewFile(const std::wstring& file)
+  {
+    const fs::path src(s_watchedPath / file);
+    const fs::path dest(s_destinationPath / file);
+
+    try
+    {
+      fs::copy_file(src, dest, fs::copy_options::update_existing);
+
+      std::wcout << L"Copied file: " << file << std::endl;
+    }
+    catch (std::exception e)
+    {
+      std::wcerr << L"Failed to copy file: " << file << std::endl;
+    }
+  }
+}
+
 [[noreturn]] DWORD ReportError(std::string pErrorString)
 {
   DWORD errorCode = GetLastError();
@@ -111,6 +146,8 @@ private:
 [[nodiscard]] DWORD WatchDirectory(LPCTSTR pDir)
 {
   Watcher watcher{};
+
+  Mover::s_watchedPath = std::wstring(pDir);
 
   {
     using WIR = Watcher::InitResult;
@@ -144,8 +181,21 @@ private:
       return ReportError("unhandled waitStatus.");
     }
 
+    std::set<std::wstring> processedFiles{};
+
     for (const auto& file : files)
+    {
+      if (processedFiles.contains(file.first))
+        continue;
+
       std::wcout << file.first << ": " << file.second << std::endl;
+
+      if (file.second == 1 || file.second == 3) // if file is created or edited
+      {
+        Mover::CopyNewFile(file.first);
+        processedFiles.insert(file.first);
+      }
+    }
   }
 
   return NULL;
@@ -157,14 +207,18 @@ int main(int argc, TCHAR* argv[])
 
   switch (argc)
   {
+#ifdef _DEBUG
   case 1:
-    errorCode = WatchDirectory(L"C:\\dev\\test");
+    Mover::s_destinationPath = L"C:\\dev\\destination\\";
+    errorCode = WatchDirectory(L"C:\\dev\\test\\");
     break;
-  case 2:
+#endif
+  case 3:
+    Mover::s_destinationPath = argv[2];
     errorCode = WatchDirectory(argv[1]);
     break;
   default:
-    std::cerr << "Path to directory required!" << std::endl;
+    std::wcout << L"Usage: " << argv[0] << L" watched_path destination_path" << std::endl;
   }
 
   if (errorCode)
