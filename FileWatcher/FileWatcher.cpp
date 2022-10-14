@@ -81,6 +81,7 @@ public:
     return ProcessResult::kSuccess;
   }
 
+private:
   [[nodiscard]] FILE_NOTIFY_INFORMATION* UpdateCurrentEvent(FILE_NOTIFY_INFORMATION* pCurrentEvent) const
   {
     return reinterpret_cast<FILE_NOTIFY_INFORMATION*>(reinterpret_cast<uint8_t*>(pCurrentEvent) + reinterpret_cast<FILE_NOTIFY_INFORMATION*>(pCurrentEvent)->NextEntryOffset);
@@ -90,7 +91,6 @@ private:
   HANDLE dirHandle{};
   OVERLAPPED overlapped{};
   uint8_t events[1024]{};
-  int position{0};
 };
 
 [[noreturn]] DWORD ReportError(std::string pErrorString)
