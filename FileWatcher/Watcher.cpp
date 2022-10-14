@@ -1,7 +1,5 @@
 #include "Watcher.h"
 
-#include <Windows.h>
-
 Watcher::~Watcher()
 {
   if (dirHandle != NULL && dirHandle != INVALID_HANDLE_VALUE)
