@@ -1,5 +1,6 @@
 #include <filesystem>
 #include <iostream>
+#include <chrono>
 
 namespace Mover
 {
@@ -20,8 +21,19 @@ namespace Mover
 
   void CopyNewFile(const std::wstring& file)
   {
+    const auto timestamp = std::format(L"{}_{:%d-%m-%Y-%H-%M-%OS}", file, std::chrono::system_clock::now());
+
+    try
+    {
+      fs::create_directory(s_destinationPath / timestamp);
+    }
+    catch (std::exception e)
+    {
+      std::wcerr << L"Failed to create directory: " << file << std::endl;
+    }
+
     const fs::path src(s_watchedPath / file);
-    const fs::path dest(s_destinationPath / file);
+    const fs::path dest(s_destinationPath / timestamp / file);
 
     try
     {

@@ -65,7 +65,7 @@
   return NULL;
 }
 
-int main(int argc, TCHAR* argv[])
+int wmain(int argc, TCHAR* argv[])
 {
   DWORD errorCode = NULL;
 
@@ -82,7 +82,11 @@ int main(int argc, TCHAR* argv[])
     errorCode = WatchDirectory(argv[1]);
     break;
   default:
-    std::wcout << L"Usage: " << argv[0] << L" watched_path destination_path" << std::endl;
+  {
+    std::wstring fullPath(argv[0]);
+    std::wstring fileName = fullPath.substr(fullPath.find_last_of(L"/\\") + 1);
+    std::wcout << L"Usage: " << fileName << L" watched_path destination_path" << std::endl;
+  }
   }
 
   if (errorCode)
